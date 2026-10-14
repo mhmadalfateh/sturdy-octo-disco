@@ -15,18 +15,27 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Find Project Directory
-        id: find_dir
+      - name: Unzip Project Files
         run: |
-          # البحث عن مكان ملف settings.gradle تلقائياً (سواء في الجذر أو داخل مجلد فرعي)
+          echo "Looking for zip files..."
+          # البحث عن أي ملف zip مرفوع وفك ضغطه
+          ZIP_FILE=$(find . -maxdepth 2 -name "*.zip" | head -n 1)
+          if [ -n "$ZIP_FILE" ]; then
+            echo "Found zip file: $ZIP_FILE, extracting..."
+            unzip -q "$ZIP_FILE" -d extracted_project
+            # الانتقال للمجلد المستخرج أو البحث عن مكان settings.gradle داخله
+            cd extracted_project
+          fi
+          
+          # التحقق من مكان وجود ملف settings.gradle بعد الفك
           SETTING_FILE=$(find . -maxdepth 3 -name "settings.gradle" | head -n 1)
           if [ -z "$SETTING_FILE" ]; then
-            echo "Error: settings.gradle not found!"
+            echo "Error: settings.gradle not found even after extraction!"
             exit 1
           fi
           PROJECT_DIR=$(dirname "$SETTING_FILE")
-          echo "project_dir=$PROJECT_DIR" >> $GITHUB_OUTPUT
-          echo "Found project at: $PROJECT_DIR"
+          echo "project_dir=$PROJECT_DIR" >> $GITHUB_ENV
+          echo "Project path resolved to: $PROJECT_DIR"
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -47,21 +56,16 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Verify Project Files
-        run: |
-          test -f "${{ steps.find_dir.outputs.project_dir }}/settings.gradle"
-          test -f "${{ steps.find_dir.outputs.project_dir }}/app/build.gradle"
-          test -f "${{ steps.find_dir.outputs.project_dir }}/app/src/main/AndroidManifest.xml"
-
       - name: Build APK
         run: |
-          cd "${{ steps.find_dir.outputs.project_dir }}"
+          # الدخول لمسار المشروع وفك الضغط للوصول لـ Gradle وبناء التطبيق
+          cd extracted_project/${{ env.project_dir }}
           gradle assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Qiyas-APK
-          path: "${{ steps.find_dir.outputs.project_dir }}/app/build/outputs/apk/debug/app-debug.apk"
+          path: "extracted_project/**/app/build/outputs/apk/debug/app-debug.apk"
           if-no-files-found: error
           retention-days: 14
